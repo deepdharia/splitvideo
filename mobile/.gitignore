@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+.env
+.env.*
+!.env.example
+android/
+ios/
+
+# Expo local credentials
+credentials.json
+
+# macOS
+.DS_Store
