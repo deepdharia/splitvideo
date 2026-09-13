@@ -5,7 +5,7 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import { StatusBar } from 'expo-status-bar';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { splitVideo, type CropMode, type SplitJob } from '../src/native/videoEngine';
+import { getVideoInfo, splitVideo, type CropMode, type SplitJob } from '../src/native/videoEngine';
 
 const MAX_FILE_BYTES = 1024 * 1024 * 1024;
 const DURATION_PRESETS = [15, 30, 60, 90, 120];
@@ -45,8 +45,15 @@ export default function HomeScreen() {
     }
     setUri(asset.uri);
     setName(asset.name ?? 'Video');
-    setDuration(asset.duration ? asset.duration / 1000 : null);
+    setDuration(null);
     setOutputs([]);
+    try {
+      const info = await getVideoInfo(asset.uri);
+      setDuration(info.durationMs / 1000);
+    } catch (error) {
+      Alert.alert('Video not ready', error instanceof Error ? error.message : 'The selected video could not be inspected.');
+      setUri(null);
+    }
   }
 
   function getJob(): SplitJob {
@@ -158,13 +165,7 @@ export default function HomeScreen() {
                 {(['x', 'y', 'width', 'height'] as const).map((field) => (
                   <View key={field} style={styles.cropField}>
                     <Text style={styles.cropLabel}>{field}</Text>
-                    <TextInput
-                      value={String(Math.round(crop[field] * 100))}
-                      onChangeText={(value) => updateCustomCrop(field, value)}
-                      keyboardType="numeric"
-                      style={styles.cropInput}
-                      maxLength={3}
-                    />
+                    <TextInput value={String(Math.round(crop[field] * 100))} onChangeText={(value) => updateCustomCrop(field, value)} keyboardType="numeric" style={styles.cropInput} maxLength={3} />
                   </View>
                 ))}
               </View>
