@@ -5,6 +5,5 @@
   "description": "Native local video processing engine for SplitVideo",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "peerDependencies": { "expo": "*" },
-  "devDependencies": { "expo-modules-core": "^3.0.0" }
+  "peerDependencies": { "expo": "*" }
 }
