@@ -13,11 +13,7 @@ public class SplitVideoEngineModule: Module {
       }
       let durationMs = Int(CMTimeGetSeconds(asset.duration) * 1000.0)
       let size = Self.orientedSize(for: track)
-      return [
-        "durationMs": durationMs,
-        "width": Int(size.width),
-        "height": Int(size.height)
-      ]
+      return ["durationMs": durationMs, "width": Int(size.width), "height": Int(size.height)]
     }
 
     AsyncFunction("exportClip") { (
@@ -32,67 +28,74 @@ public class SplitVideoEngineModule: Module {
       preserveAudio: Bool,
       outputName: String
     ) async throws -> String in
-      let asset = try Self.asset(from: inputUri)
-      guard let videoTrack = asset.tracks(withMediaType: .video).first else {
+      let sourceAsset = try Self.asset(from: inputUri)
+      guard let sourceVideo = sourceAsset.tracks(withMediaType: .video).first else {
         throw NSError(domain: "SplitVideoEngine", code: 2, userInfo: [NSLocalizedDescriptionKey: "No video track found."])
       }
+
+      let sourceDuration = CMTimeGetSeconds(sourceAsset.duration)
+      let start = max(0, min(startMs / 1000.0, sourceDuration))
+      let end = max(start, min(endMs / 1000.0, sourceDuration))
+      let sourceRange = CMTimeRange(
+        start: CMTime(seconds: start, preferredTimescale: 600),
+        end: CMTime(seconds: end, preferredTimescale: 600)
+      )
 
       let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(outputName)
       try? FileManager.default.removeItem(at: outputURL)
 
-      guard let exporter = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else {
-        throw NSError(domain: "SplitVideoEngine", code: 3, userInfo: [NSLocalizedDescriptionKey: "This video cannot be exported on this device."])
+      let needsComposition = cropType != "original" || !preserveAudio
+      let exportAsset: AVAsset
+      let videoComposition: AVVideoComposition?
+      let exportRange: CMTimeRange
+
+      if needsComposition {
+        let composition = AVMutableComposition()
+        guard let destinationVideo = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+          throw NSError(domain: "SplitVideoEngine", code: 3, userInfo: [NSLocalizedDescriptionKey: "Could not create video composition."])
+        }
+        try destinationVideo.insertTimeRange(sourceRange, of: sourceVideo, at: .zero)
+
+        if preserveAudio, let sourceAudio = sourceAsset.tracks(withMediaType: .audio).first {
+          let destinationAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+          try destinationAudio?.insertTimeRange(sourceRange, of: sourceAudio, at: .zero)
+        }
+
+        let compositionVideo = AVMutableVideoComposition(propertiesOf: composition)
+        let oriented = Self.orientedSize(for: sourceVideo)
+        let cropRect = Self.cropRect(type: cropType, normalizedX: cropX, normalizedY: cropY, normalizedWidth: cropWidth, normalizedHeight: cropHeight, size: oriented)
+        compositionVideo.renderSize = cropType == "original" ? oriented : cropRect.size
+        let fps = max(1, Int32(sourceVideo.nominalFrameRate.rounded()))
+        compositionVideo.frameDuration = CMTime(value: 1, timescale: fps)
+
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
+        let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: destinationVideo)
+        layer.setTransform(sourceVideo.preferredTransform, at: .zero)
+        if cropType != "original" {
+          layer.setCropRectangle(cropRect, at: .zero)
+        }
+        instruction.layerInstructions = [layer]
+        compositionVideo.instructions = [instruction]
+
+        exportAsset = composition
+        videoComposition = compositionVideo
+        exportRange = CMTimeRange(start: .zero, duration: composition.duration)
+      } else {
+        exportAsset = sourceAsset
+        videoComposition = nil
+        exportRange = sourceRange
+      }
+
+      guard let exporter = AVAssetExportSession(asset: exportAsset, presetName: AVAssetExportPresetHighestQuality) else {
+        throw NSError(domain: "SplitVideoEngine", code: 4, userInfo: [NSLocalizedDescriptionKey: "This video cannot be exported on this device."])
       }
 
       exporter.outputURL = outputURL
       exporter.outputFileType = .mp4
       exporter.shouldOptimizeForNetworkUse = false
-      let duration = CMTimeGetSeconds(asset.duration)
-      let start = max(0, min(startMs / 1000.0, duration))
-      let end = max(start, min(endMs / 1000.0, duration))
-      exporter.timeRange = CMTimeRange(
-        start: CMTime(seconds: start, preferredTimescale: 600),
-        end: CMTime(seconds: end, preferredTimescale: 600)
-      )
-
-      if !preserveAudio {
-        // AVAssetExportSession exports all tracks by default; removing audio is handled
-        // by a composition below when explicitly requested.
-      }
-
-      if cropType != "original" || !preserveAudio {
-        let composition = AVMutableComposition()
-        guard let destinationVideo = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-          throw NSError(domain: "SplitVideoEngine", code: 4, userInfo: [NSLocalizedDescriptionKey: "Could not create video composition."])
-        }
-        try destinationVideo.insertTimeRange(exporter.timeRange, of: videoTrack, at: .zero)
-
-        if preserveAudio, let audioTrack = asset.tracks(withMediaType: .audio).first {
-          let destinationAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
-          try destinationAudio?.insertTimeRange(exporter.timeRange, of: audioTrack, at: .zero)
-        }
-
-        let videoComposition = AVMutableVideoComposition(propertiesOf: composition)
-        let oriented = Self.orientedSize(for: videoTrack)
-        let cropRect = Self.cropRect(type: cropType, normalizedX: cropX, normalizedY: cropY, normalizedWidth: cropWidth, normalizedHeight: cropHeight, size: oriented)
-        let renderSize = cropType == "original" ? oriented : cropRect.size
-        videoComposition.renderSize = renderSize
-        videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(max(1, Int32(videoTrack.nominalFrameRate.rounded()))))
-
-        let instruction = videoComposition.instructions.compactMap { $0 as? AVMutableVideoCompositionInstruction }.first ?? AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
-        let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: destinationVideo)
-        layer.setTransform(videoTrack.preferredTransform, at: .zero)
-        if cropType != "original" {
-          layer.setCropRectangle(cropRect, at: .zero)
-        }
-        instruction.layerInstructions = [layer]
-        videoComposition.instructions = [instruction]
-
-        exporter.asset = composition
-        exporter.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
-        exporter.videoComposition = videoComposition
-      }
+      exporter.timeRange = exportRange
+      exporter.videoComposition = videoComposition
 
       try await exporter.export(to: outputURL, as: .mp4)
       return outputURL.path
@@ -107,9 +110,7 @@ public class SplitVideoEngineModule: Module {
   }
 
   private static func orientedSize(for track: AVAssetTrack) -> CGSize {
-    let size = track.naturalSize
-    let transform = track.preferredTransform
-    let rect = CGRect(origin: .zero, size: size).applying(transform)
+    let rect = CGRect(origin: .zero, size: track.naturalSize).applying(track.preferredTransform)
     return CGSize(width: abs(rect.width), height: abs(rect.height))
   }
 
@@ -135,9 +136,8 @@ public class SplitVideoEngineModule: Module {
     if sourceAspect > targetAspect {
       let width = size.height * targetAspect
       return CGRect(x: (size.width - width) / 2, y: 0, width: width, height: size.height)
-    } else {
-      let height = size.width / targetAspect
-      return CGRect(x: 0, y: (size.height - height) / 2, width: size.width, height: height)
     }
+    let height = size.width / targetAspect
+    return CGRect(x: 0, y: (size.height - height) / 2, width: size.width, height: height)
   }
 }
