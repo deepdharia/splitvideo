@@ -6,9 +6,19 @@
     "orientation": "portrait",
     "scheme": "splitvideo",
     "userInterfaceStyle": "automatic",
-    "ios": { "supportsTablet": true, "bundleIdentifier": "in.splitvideo.app" },
-    "android": { "package": "in.splitvideo.app" },
-    "plugins": ["expo-router"],
-    "experiments": { "typedRoutes": true }
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "in.splitvideo.app"
+    },
+    "android": {
+      "package": "in.splitvideo.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-video"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }
