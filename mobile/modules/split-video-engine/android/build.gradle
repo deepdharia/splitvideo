@@ -1,0 +1,32 @@
+plugins {
+  id 'com.android.library'
+  id 'org.jetbrains.kotlin.android'
+}
+
+group = 'in.splitvideo.engine'
+version = '0.1.0'
+
+android {
+  namespace 'expo.modules.splitvideoengine'
+  compileSdk 36
+
+  defaultConfig {
+    minSdk 24
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = '17'
+  }
+}
+
+dependencies {
+  implementation project(':expo-modules-core')
+  implementation 'androidx.media3:media3-transformer:1.11.0'
+  implementation 'androidx.media3:media3-effect:1.11.0'
+  implementation 'androidx.media3:media3-common:1.11.0'
+}
