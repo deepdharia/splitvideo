@@ -21,20 +21,20 @@ export type VideoInfo = {
   height: number;
 };
 
-export type SplitResult = {
-  outputs: string[];
-};
-
 type NativeVideoEngine = {
   getVideoInfo(uri: string): Promise<VideoInfo>;
-  exportClip(options: {
-    inputUri: string;
-    startMs: number;
-    endMs: number;
-    crop: CropMode;
-    preserveAudio: boolean;
-    outputName: string;
-  }): Promise<string>;
+  exportClip(
+    inputUri: string,
+    startMs: number,
+    endMs: number,
+    cropType: string,
+    cropX: number | null,
+    cropY: number | null,
+    cropWidth: number | null,
+    cropHeight: number | null,
+    preserveAudio: boolean,
+    outputName: string,
+  ): Promise<string>;
 };
 
 const native = requireOptionalNativeModule<NativeVideoEngine>('SplitVideoEngine');
@@ -50,13 +50,11 @@ export async function getVideoInfo(uri: string): Promise<VideoInfo> {
   return requireEngine().getVideoInfo(uri);
 }
 
-export async function splitVideo(job: SplitJob): Promise<SplitResult> {
+export async function splitVideo(job: SplitJob): Promise<{ outputs: string[] }> {
   const engine = requireEngine();
   const info = await engine.getVideoInfo(job.inputUri);
   const durationMs = info.durationMs;
-  if (!Number.isFinite(durationMs) || durationMs <= 0) {
-    throw new Error('Could not determine video duration.');
-  }
+  if (!Number.isFinite(durationMs) || durationMs <= 0) throw new Error('Could not determine video duration.');
 
   let boundaries: number[] = [0, durationMs];
   if (job.mode === 'duration') {
@@ -77,15 +75,19 @@ export async function splitVideo(job: SplitJob): Promise<SplitResult> {
     const startMs = boundaries[index];
     const endMs = boundaries[index + 1];
     if (endMs - startMs < 10) continue;
-    const output = await engine.exportClip({
-      inputUri: job.inputUri,
+    const crop = job.crop;
+    outputs.push(await engine.exportClip(
+      job.inputUri,
       startMs,
       endMs,
-      crop: job.crop,
-      preserveAudio: job.preserveAudio,
-      outputName: `splitvideo-${String(index + 1).padStart(3, '0')}.mp4`,
-    });
-    outputs.push(output);
+      crop.type,
+      crop.type === 'custom' ? crop.x : null,
+      crop.type === 'custom' ? crop.y : null,
+      crop.type === 'custom' ? crop.width : null,
+      crop.type === 'custom' ? crop.height : null,
+      job.preserveAudio,
+      `splitvideo-${String(index + 1).padStart(3, '0')}.mp4`,
+    ));
   }
 
   return { outputs };
