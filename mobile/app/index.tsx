@@ -10,7 +10,12 @@ import { splitVideo, type CropMode, type SplitJob } from '../src/native/videoEng
 const MAX_FILE_BYTES = 1024 * 1024 * 1024;
 const DURATION_PRESETS = [15, 30, 60, 90, 120];
 const PART_PRESETS = [2, 4, 6, 10];
-const CROP_PRESETS: CropMode[] = [{ type: 'original' }, { type: '9:16' }, { type: '1:1' }];
+const CROP_PRESETS: CropMode[] = [
+  { type: 'original' },
+  { type: '9:16' },
+  { type: '1:1' },
+  { type: 'custom', x: 0, y: 0, width: 1, height: 1 },
+];
 
 export default function HomeScreen() {
   const [uri, setUri] = useState<string | null>(null);
@@ -28,17 +33,10 @@ export default function HomeScreen() {
     instance.loop = false;
   });
 
-  const durationLabel = useMemo(() => {
-    if (!duration) return 'Reading video…';
-    return `${Math.round(duration)} sec`;
-  }, [duration]);
+  const durationLabel = useMemo(() => duration ? `${Math.round(duration)} sec` : 'Reading video…', [duration]);
 
   async function pickVideo() {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: 'video/*',
-      copyToCacheDirectory: false,
-      multiple: false,
-    });
+    const result = await DocumentPicker.getDocumentAsync({ type: 'video/*', copyToCacheDirectory: false, multiple: false });
     if (result.canceled) return;
     const asset = result.assets[0];
     if (asset.size && asset.size > MAX_FILE_BYTES) {
@@ -94,6 +92,15 @@ export default function HomeScreen() {
     await Sharing.shareAsync(uriToShare, { mimeType: 'video/mp4', dialogTitle: 'Share SplitVideo clip' });
   }
 
+  function updateCustomCrop(field: 'x' | 'y' | 'width' | 'height', value: string) {
+    const numeric = Math.max(0, Math.min(100, Number(value.replace(/[^0-9.]/g, '')) || 0)) / 100;
+    const current = crop.type === 'custom' ? crop : { type: 'custom' as const, x: 0, y: 0, width: 1, height: 1 };
+    const next = { ...current, [field]: numeric };
+    if (next.x + next.width > 1) next.width = Math.max(0.01, 1 - next.x);
+    if (next.y + next.height > 1) next.height = Math.max(0.01, 1 - next.y);
+    setCrop(next);
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.screen}>
       <StatusBar style="light" />
@@ -129,24 +136,40 @@ export default function HomeScreen() {
                 </Pressable>
               );
             })}
-            <TextInput
-              value={customValue}
-              onChangeText={setCustomValue}
-              keyboardType="numeric"
-              placeholder={mode === 'duration' ? 'Custom seconds' : 'Custom parts'}
-              placeholderTextColor="#777780"
-              style={styles.customInput}
-            />
+            <TextInput value={customValue} onChangeText={setCustomValue} keyboardType="numeric" placeholder={mode === 'duration' ? 'Custom seconds' : 'Custom parts'} placeholderTextColor="#777780" style={styles.customInput} />
           </View>
 
           <Text style={styles.sectionTitle}>Crop</Text>
           <View style={styles.pills}>
-            {CROP_PRESETS.map((value) => (
-              <Pressable key={value.type} onPress={() => setCrop(value)} style={[styles.pill, crop.type === value.type && styles.pillActive]}>
-                <Text style={[styles.pillText, crop.type === value.type && styles.pillTextActive]}>{value.type === 'original' ? 'Original' : value.type}</Text>
-              </Pressable>
-            ))}
+            {CROP_PRESETS.map((value) => {
+              const selected = crop.type === value.type;
+              return (
+                <Pressable key={value.type} onPress={() => setCrop(value)} style={[styles.pill, selected && styles.pillActive]}>
+                  <Text style={[styles.pillText, selected && styles.pillTextActive]}>{value.type === 'original' ? 'Original' : value.type === 'custom' ? 'Custom' : value.type}</Text>
+                </Pressable>
+              );
+            })}
           </View>
+
+          {crop.type === 'custom' && (
+            <View style={styles.customCrop}>
+              <Text style={styles.cropHint}>Set crop rectangle as percentages of the original frame.</Text>
+              <View style={styles.cropRow}>
+                {(['x', 'y', 'width', 'height'] as const).map((field) => (
+                  <View key={field} style={styles.cropField}>
+                    <Text style={styles.cropLabel}>{field}</Text>
+                    <TextInput
+                      value={String(Math.round(crop[field] * 100))}
+                      onChangeText={(value) => updateCustomCrop(field, value)}
+                      keyboardType="numeric"
+                      style={styles.cropInput}
+                      maxLength={3}
+                    />
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
 
           <Pressable style={[styles.secondary, busy && styles.disabled]} disabled={busy} onPress={startSplit}>
             <Text style={styles.secondaryText}>{busy ? 'Processing on device…' : 'Export clips'}</Text>
@@ -203,6 +226,12 @@ const styles = StyleSheet.create({
   pillText: { color: '#aaaab2', fontWeight: '700' },
   pillTextActive: { color: '#111' },
   customInput: { minWidth: 115, borderWidth: 1, borderColor: '#393940', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, color: '#fff' },
+  customCrop: { backgroundColor: '#0d0d10', borderRadius: 14, padding: 12, marginBottom: 18 },
+  cropHint: { color: '#8e8e98', fontSize: 12, marginBottom: 10 },
+  cropRow: { flexDirection: 'row', gap: 8 },
+  cropField: { flex: 1 },
+  cropLabel: { color: '#888891', fontSize: 11, marginBottom: 5, textTransform: 'uppercase' },
+  cropInput: { color: '#fff', borderWidth: 1, borderColor: '#393940', borderRadius: 10, paddingVertical: 9, textAlign: 'center' },
   secondary: { borderWidth: 1, borderColor: '#393940', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   secondaryText: { color: '#fff', fontWeight: '700' },
   disabled: { opacity: 0.5 },
