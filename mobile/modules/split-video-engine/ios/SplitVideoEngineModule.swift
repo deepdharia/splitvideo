@@ -72,9 +72,7 @@ public class SplitVideoEngineModule: Module {
         instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
         let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: destinationVideo)
         layer.setTransform(sourceVideo.preferredTransform, at: .zero)
-        if cropType != "original" {
-          layer.setCropRectangle(cropRect, at: .zero)
-        }
+        if cropType != "original" { layer.setCropRectangle(cropRect, at: .zero) }
         instruction.layerInstructions = [layer]
         compositionVideo.instructions = [instruction]
 
@@ -90,7 +88,6 @@ public class SplitVideoEngineModule: Module {
       guard let exporter = AVAssetExportSession(asset: exportAsset, presetName: AVAssetExportPresetHighestQuality) else {
         throw NSError(domain: "SplitVideoEngine", code: 4, userInfo: [NSLocalizedDescriptionKey: "This video cannot be exported on this device."])
       }
-
       exporter.outputURL = outputURL
       exporter.outputFileType = .mp4
       exporter.shouldOptimizeForNetworkUse = false
@@ -98,7 +95,7 @@ public class SplitVideoEngineModule: Module {
       exporter.videoComposition = videoComposition
 
       try await exporter.export(to: outputURL, as: .mp4)
-      return outputURL.path
+      return outputURL.absoluteString
     }
   }
 
@@ -123,16 +120,9 @@ public class SplitVideoEngineModule: Module {
     case "custom": targetAspect = CGFloat((normalizedWidth ?? 1) / max(normalizedHeight ?? 1, 0.0001))
     default: return CGRect(origin: .zero, size: size)
     }
-
     if type == "custom" {
-      return CGRect(
-        x: CGFloat(normalizedX ?? 0) * size.width,
-        y: CGFloat(normalizedY ?? 0) * size.height,
-        width: CGFloat(normalizedWidth ?? 1) * size.width,
-        height: CGFloat(normalizedHeight ?? 1) * size.height
-      )
+      return CGRect(x: CGFloat(normalizedX ?? 0) * size.width, y: CGFloat(normalizedY ?? 0) * size.height, width: CGFloat(normalizedWidth ?? 1) * size.width, height: CGFloat(normalizedHeight ?? 1) * size.height)
     }
-
     if sourceAspect > targetAspect {
       let width = size.height * targetAspect
       return CGRect(x: (size.width - width) / 2, y: 0, width: width, height: size.height)
